@@ -1,7 +1,7 @@
 /* 
  * Project  : RC circuit - PI compensator
  * Author   : O. DJADANE
- * Updated  : 2021/07/30
+ * Updated  : 2021/08/04
  * Processor: dsPIC33EV32GM102
  * Compiler : MPLAB XC16
  */
@@ -174,9 +174,9 @@ void runCommand() {
         PID.errDiff = (PID.err - PID.errPrev) / PID.Ts;
         PID.errPrev = PID.err;
         PID.command = PID.kp*PID.err + PID.ki*PID.errSum + PID.kd*PID.errDiff;
-        OC1RS = (uint16_t) bound(PID.command * (PR2VAL/5.0), 1, PR2VAL);
+        OC1RS = (uint16_t) bound(PID.command * (PR2VAL/5.0), 2, PR2VAL);
     } else {
-        OC1RS = (uint16_t) bound(inputOpenLoop * (PR2VAL/5.0), 1, PR2VAL);
+        OC1RS = (uint16_t) bound(inputOpenLoop * (PR2VAL/5.0), 2, PR2VAL);
     }
 }
 
