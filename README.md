@@ -1,15 +1,12 @@
 # dspic-control-rc-circuit
+
 This is my attempt to further my knowledge about control theory, by using a microcontroller to apply some of its concepts on a RC circuit
 
 The code is compiled using XC16 v1.60 and has been successfully tested on a dsPIC33EV32GM102.
 
-## 1. PI compensator
 
-### About
 
-This is an implementation of a PID compensator that can be tuned by sending the parameters through the serial port (tailored for [qt-pid-scope](https://github.com/odjadane/qt-pid-scope), but easily customizable for other uses).
-
-A demonstration of this program can be seen [in this video](https://www.youtube.com/watch?v=Imp_jYF0e8U).
+## 0. Notes
 
 ### Hardware
 
@@ -25,10 +22,29 @@ A demonstration of this program can be seen [in this video](https://www.youtube.
 ### Software
 
 - Due to the use of utoa(), the option "Use legacy libc" must be disabled (Project properties > XC16 > XC16 (Global Options) in MPLAB X).
-- This program can be optimized by converting floating-point computations to fixed-point.
+- These programs can be optimized by converting floating-point computations to fixed-point.
+
+
+
+## 1. PI compensator
+
+This is an implementation of a PID compensator that can be tuned by sending the parameters through the serial port (tailored for [qt-pid-scope](https://github.com/odjadane/qt-pid-scope), but easily customizable for other uses).
+
+A demonstration of this program can be seen [in this video](https://www.youtube.com/watch?v=Imp_jYF0e8U).
+
+
+
+## 2. Digital controller
+
+This is an implementation of a controller designed entirely in the z-domain.
+
+The setpoint is sent through the serial port (tailored for [qt-pid-scope](https://github.com/odjadane/qt-pid-scope), but easily customizable).
+
+The design process is explained [in this video](https://www.youtube.com/watch?v=c4NSm0-ceeI).
 
 
 
 ## Acknowledgments
 
 - [Hardware-based activities - CTMS](https://ctms.engin.umich.edu/CTMS/index.php?aux=Index_Activities)
+- [Discrete Control - B. Douglas](https://www.youtube.com/playlist?list=PLUMWjy5jgHK0MLv6Ksf-NHi7Ur8NRNU4Z)
