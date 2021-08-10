@@ -1,7 +1,7 @@
 /* 
  * Project  : RC circuit - PI compensator
  * Author   : O. DJADANE
- * Updated  : 2021/08/04
+ * Updated  : 2021/08/10
  * Processor: dsPIC33EV32GM102
  * Compiler : MPLAB XC16
  */
@@ -16,54 +16,52 @@
 #include <stdlib.h>             // atof, utoa
 
 #pragma config POSCMD = NONE    // Primary Oscillator : disabled
-#pragma config FNOSC = FRC      // Oscillator mode : FRC
+#pragma config FNOSC = FRC      // Oscillator at POR: FRC
 #pragma config FCKSM = CSECMD	// Clock switch: enabled / FSCM: disabled
-#pragma config IESO = OFF       // Two speed oscillator : disabled
-#pragma config FWDTEN = OFF     // Watchdog Timer : disabled
-#pragma config OSCIOFNC = ON    // RA3/OSC2 : general purpose I/O
+#pragma config IESO = OFF       // Two speed oscillator: disabled
+#pragma config FWDTEN = OFF     // Watchdog Timer: disabled
+#pragma config OSCIOFNC = ON    // RA3/OSC2: general purpose I/O
 #pragma config ICS = PGD3       // ICD Communication Channel: PGEC3/PGED3
 
 // Variables/Defines - Sampling period
-#define PR3VAL 6187             // 64*6188 / 39.6MHz = 10 ms
+#define PR3VAL 6187             // (64 * 6188) / 39.6MHz = 10 ms
 
 // Variables/Defines - PWM frequency
-#define PR2VAL 39599            // 39.6MHz / (1 * (39599+1)) = 1 kHz
+#define PR2VAL 39599            // 39.6MHz / (1 * 39600) = 1 kHz
 
 // Variables/Defines - UART
-#define BRGVAL 256              // 39.6MHz / (4 * 38400) - 1
+#define BRGVAL 256              // 39.6MHz / (4 * 257) = 38521 bps (38400)
 #define STR_IN_MAX 40
 #define STR_OUT_MAX 20
 char stringReceived[STR_IN_MAX];
 char stringSent[STR_OUT_MAX];
-char stringParseMode[3];
 char stringParseDelim[1] = "/";
-char *ptrStringSent;
 volatile unsigned char charReceived;
-volatile uint8_t indexParse = 0;
-volatile bool isSerialReceiving = false;
+bool flagSerialReceiving = false;
 
 // Variables/Defines - ADC
+#define ADC_RESOLUTION 1024
+#define ADC_VREF 5.0f
 volatile uint16_t adcValue = 0;
-volatile float adcVolt = 0;
 
 // Variables/Defines - PID
 #define SAMPLING_TIME 0.01
 typedef struct{
     float kp, ki, kd, Ts, sp, pv, err, errSum, errDiff, errPrev, command;
+    bool isEnabled;
 } T_PID;
-T_PID PID = {0, 0, 0, SAMPLING_TIME, 0, 0, 0, 0, 0, 0, 0};
-float inputOpenLoop = 0;
-bool isClosedLoop = false;
-bool isTimeToRunCommand = false;
+T_PID PID = {0, 0, 0, SAMPLING_TIME, 0, 0, 0, 0, 0, 0, 0, false};
+bool flagRunCommand = false;
 
 // Prototypes
+void readMeasurement();
 void runCommand();
 float bound(float, float, float);
-void resetErrorsInPID();
+void resetPID();
 void receiveDataWithMarkers();
 void parseReceivedData();
 void sendMeasurement();
-void formatString();
+void formatString(char *, float [], uint8_t);
 void floatTwoDecimalsToString(char*, float);
 
 int main() {
@@ -100,8 +98,6 @@ int main() {
     T3CONbits.TGATE = 0;    // Gated timer mode: disabled
     TMR3 = 0;               // Clear timer register
     PR3 = PR3VAL;           // Period value
-    IFS0bits.T3IF = 0;      // Clear Timer3 interrupt flag
-    IEC0bits.T3IE = 1;      // Enable Timer3 interrupt
     T3CONbits.TON = 1;      // Enable Timer3
     
     /* Setup ADC for 10-bit resolution, using RB7/AN25 pin */
@@ -138,9 +134,9 @@ int main() {
     
     /* Main loop */
     while (true) {
-        if (isTimeToRunCommand) {
-            isTimeToRunCommand = false;
-			// ADC conversion is automatically triggered by the timer
+        if (flagRunCommand) {
+            flagRunCommand = false;
+            readMeasurement();
             runCommand();
             sendMeasurement();
         }
@@ -148,14 +144,9 @@ int main() {
     return 0;
 }
 
-void __attribute__((__interrupt__, no_auto_psv)) _T3Interrupt(void) {
-    isTimeToRunCommand = true;
-    IFS0bits.T3IF = 0;
-}
-
 void __attribute__ ((__interrupt__, no_auto_psv)) _AD1Interrupt(void) {
     adcValue = ADC1BUF0;
-    adcVolt = adcValue * 5.0 / 1023.0;
+    flagRunCommand = true;
     IFS0bits.AD1IF  = 0;
 }
 
@@ -165,19 +156,21 @@ void __attribute__((__interrupt__, no_auto_psv)) _U1RXInterrupt(void){
     IFS0bits.U1RXIF = 0;
 }
 
+void readMeasurement() {
+    /* Scales the value in the ADC register for the control algorithm */
+    PID.pv = adcValue * ADC_VREF / ADC_RESOLUTION;
+}
+
 void runCommand() {
-    /* Computes the duty cycle of the PWM output according to the control law */
-    if (isClosedLoop) {
-        PID.pv = adcVolt;
+    /* Computes the duty cycle of the PWM according to the control algorithm */
+    if (PID.isEnabled) {
         PID.err = PID.sp - PID.pv;
         PID.errSum += PID.err * PID.Ts;
         PID.errDiff = (PID.err - PID.errPrev) / PID.Ts;
         PID.errPrev = PID.err;
         PID.command = PID.kp*PID.err + PID.ki*PID.errSum + PID.kd*PID.errDiff;
-        OC1RS = (uint16_t) bound(PID.command * (PR2VAL/5.0), 2, PR2VAL);
-    } else {
-        OC1RS = (uint16_t) bound(inputOpenLoop * (PR2VAL/5.0), 2, PR2VAL);
     }
+    OC1RS = (uint16_t) bound(PID.command * (PR2VAL/ADC_VREF), 2, PR2VAL);
 }
 
 float bound(float value, float valueMin, float valueMax) {
@@ -190,7 +183,7 @@ float bound(float value, float valueMin, float valueMax) {
     return value;
 }
 
-void resetErrorsInPID() {
+void resetPID() {
     /* Avoids relying on old error values when tuning */
     PID.err = 0;
     PID.errSum = 0;
@@ -200,25 +193,27 @@ void resetErrorsInPID() {
 
 void receiveDataWithMarkers() {
     /* Stores data between parenthesis */
-    if(!isSerialReceiving) {
+    static uint8_t i = 0;
+    if(!flagSerialReceiving) {
         if (charReceived == '(') {
-            isSerialReceiving = true;
+            flagSerialReceiving = true;
         }
     } else {
         if (charReceived == ')') {
-            stringReceived[indexParse] = '\0';
-            isSerialReceiving = false;
-            indexParse = 0;
+            stringReceived[i] = '\0';
+            flagSerialReceiving = false;
+            i = 0;
             parseReceivedData();
         } else {
-            stringReceived[indexParse] = charReceived;
-            indexParse++;
+            stringReceived[i] = charReceived;
+            i++;
         }
     }
 }
 
 void parseReceivedData() {
     /* Extracts parameters from the received string */
+    char stringParseMode[3];
     char *ptr = strtok(stringReceived, stringParseDelim);
     strcpy(stringParseMode, ptr);
     if (!strcmp(stringParseMode, "CL")) {
@@ -230,48 +225,53 @@ void parseReceivedData() {
         PID.ki = strtod(ptr, NULL);
         ptr = strtok(NULL, stringParseDelim);
         PID.kd = strtod(ptr, NULL);
-        isClosedLoop = true;
-        resetErrorsInPID();
+        PID.isEnabled = true;
     } else if (!strcmp(stringParseMode, "OL")) {
+        resetPID();
         ptr = strtok(NULL, stringParseDelim);
-        inputOpenLoop = strtod(ptr, NULL);
-        isClosedLoop = false;
+        PID.command = strtod(ptr, NULL);
+        PID.isEnabled = false;
     }
 }
 
 void sendMeasurement() {
     /* Sends measurements in a specific format through the serial port */
-    formatString();
-    for(ptrStringSent = stringSent; *ptrStringSent != '\0'; ptrStringSent++) {
-        while(!U1STAbits.TRMT || isSerialReceiving);
-        U1TXREG = *ptrStringSent;
+    float channels[] = {
+        PID.isEnabled ? PID.sp : PID.command,
+        PID.pv };
+    formatString(stringSent, channels, sizeof(channels)/sizeof(channels[0]));
+    
+    char *ptr;
+    for(ptr = stringSent; *ptr != '\0'; ptr++) {
+        while(!U1STAbits.TRMT || flagSerialReceiving);
+        U1TXREG = *ptr;
     }
 }
 
-void formatString() {
-    /* Format: <input/output> */
+void formatString(char *ptr, float array[], uint8_t sizeArray) {
+    /* Format: values are slash separated, the whole string is enclosed in <> */
     /* Warning: not robust at all... just wanted to avoid including sprintf */
-    ptrStringSent = stringSent;
-    *ptrStringSent++ = '<';
-    if (isClosedLoop) {
-        floatTwoDecimalsToString(ptrStringSent, PID.sp); 
-    } else {
-        floatTwoDecimalsToString(ptrStringSent, inputOpenLoop);
+    char *ptrInitial = ptr;
+    uint8_t i;
+    *ptr++ = '<';
+    for(i = 0; i < sizeArray; i++) {
+        floatTwoDecimalsToString(ptr, array[i]);
+        ptr = ptrInitial + strlen(ptrInitial);
+        if (i != sizeArray-1 ) {
+            *ptr++ = '/';
+        }
     }
-    ptrStringSent = stringSent + strlen(stringSent);
-    *ptrStringSent++ = '/';
-    floatTwoDecimalsToString(ptrStringSent, adcVolt);
-    ptrStringSent = stringSent + strlen(stringSent);
-    *ptrStringSent++ = '>';
-    ptrStringSent = '\0';
+    *ptr++ = '>';
+    ptr = '\0';
 }
 
 void floatTwoDecimalsToString(char *ptr, float value) {
     /* Writes a positive float to the pointed string up to two decimal places */
     /* Warning: not robust at all... just wanted to avoid including sprintf */
-    utoa(ptr, (unsigned int) value, 10);
+    utoa(ptr, (uint16_t) value, 10);
     ptr += strlen(ptr);
     *ptr++ = '.';
-    utoa(ptr++, (unsigned int)(value*10) % 10, 10);
-    utoa(ptr, (unsigned int)(value*100) % 10, 10);
+    utoa(ptr, (uint16_t)(value*10) % 10, 10);
+    ptr++;
+    utoa(ptr, (uint16_t)(value*100) % 10, 10);
 }
