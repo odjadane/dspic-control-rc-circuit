@@ -44,6 +44,24 @@ The design process is explained [in this video](https://www.youtube.com/watch?v=
 
 
 
+## 3. Analog Lead compensator
+
+No code has been written for this project as it was entirely implemented using op amps.
+
+The design process is explained [in this video](https://www.youtube.com/watch?v=VcRpDT5GvP8). 
+
+
+
+## 4. Digital Lead compensator
+
+This is a discrete equivalent of a Lead compensator (previously implemented using op amps).
+
+The setpoint is sent through the serial port (tailored for [qt-pid-scope](https://github.com/odjadane/qt-pid-scope), but easily customizable).
+
+The design process is explained [in this video](https://www.youtube.com/watch?v=9xWMm3ugPQQ).
+
+
+
 ## Acknowledgments
 
 - [Hardware-based activities - CTMS](https://ctms.engin.umich.edu/CTMS/index.php?aux=Index_Activities)
